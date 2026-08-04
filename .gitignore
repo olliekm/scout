@@ -16,6 +16,9 @@ Cargo.lock
 *.bin
 .cache/
 
+# Downloaded benchmark datasets (e.g. ShareGPT) -- large, refetchable, not source
+bench/data/
+
 # Editor / OS cruft
 .DS_Store
 .vscode/
