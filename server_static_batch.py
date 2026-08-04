@@ -76,7 +76,7 @@ def build_chat_text(prompt: str) -> str:
     )
 
 
-async def collect_batch() -> list[BatchItem]:
+async def collect_batch(already_have: int) -> list[BatchItem]:
     """YOUR CODE HERE.
 
     Pull items off `queue`, up to MAX_BATCH_SIZE of them, but don't wait
@@ -93,7 +93,7 @@ async def collect_batch() -> list[BatchItem]:
     batch = []
     deadline = time.perf_counter() + MAX_WAIT_S
 
-    while len(batch) < MAX_BATCH_SIZE:
+    while len(batch) + already_have< MAX_BATCH_SIZE:
         timeout = deadline - time.perf_counter()
         if timeout <= 0:
             break
@@ -172,7 +172,7 @@ async def batcher_loop():
     """
     while True:
         first = await queue.get()
-        items = [first] + await collect_batch()
+        items = [first] + await collect_batch(already_have=1)
 
         inputs, batch_prompt_len = build_batch_tensors(items)
 
