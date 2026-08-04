@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Rust (once the engine work starts)
+target/
+Cargo.lock
+
+# Model weights / HF cache, if ever downloaded into the repo dir
+*.safetensors
+*.gguf
+*.bin
+.cache/
+
+# Editor / OS cruft
+.DS_Store
+.vscode/
+.idea/
+
+# Local env overrides
+.env
