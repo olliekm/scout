@@ -1,0 +1,58 @@
+{
+  "results": [
+    {
+      "latency_s": 6.200680224224925,
+      "batch_size": 4,
+      "text": "The capital of France is Paris."
+    },
+    {
+      "latency_s": 6.197977091185749,
+      "batch_size": 4,
+      "text": "Infinite power,\nGPU's speed never stops,\nEffortlessly compute."
+    },
+    {
+      "latency_s": 11.249166864901781,
+      "batch_size": 4,
+      "text": "A hash table is a data structure that allows for efficient storage and retrieval of elements based on their keys. The key to this system is the use of a hash function, which maps each element to an index in a hash table.\n\nThe process of using a hash table involves several steps:\n\n1. **Key Selection**: A unique identifier or value called a key is selected as the basis for storing and retrieving information. This key can be any type of data, such as strings, numbers, or even other types like objects.\n\n2. **Hash Function**: A mathematical function (hash function) is used to convert the key into an index within the range of available slots in the hash table. This function takes the key as input and produces an integer between 0 and n-1, where n is the number of slots in the hash table.\n\n3. **Insertion**: When an element needs to be added to the hash table, its key is hashed and the resulting index is assigned to it. If there is already an entry with the same key, the insertion point is adjusted accordingly.\n\n4. **Lookup**: To retrieve an element from the hash table, the key is hashed again. The result is compared to the original key. If they match, the corresponding slot is returned;"
+    },
+    {
+      "latency_s": 6.191384971141815,
+      "batch_size": 4,
+      "text": "Certainly! Below is a Python function that reverses a singly-linked list:\n\n```python\nclass ListNode:\n    def __init__(self, value=0, next=None):\n        self.value = value\n        self.next = next\n\ndef reverse_linked_list(head: ListNode) -> ListNode:\n    \"\"\"\n    Reverses the given singly-linked list.\n\n    Args:\n    head (ListNode): The head of the linked list.\n\n    Returns:\n    ListNode: The new head of the reversed linked list.\n    \"\"\"\n    if not head or not head.next:\n        return head\n    \n    # Reverse the rest of the list\n    prev_node = None\n    current_node = head\n    while current_node:\n        next_node = current_node.next  # Store the next node for reversal\n        current_node.next = prev_node  # Reverse the current node's pointer\n        prev_node = current_node  # Move to the previous node\n        current_node = next_node\n    \n    # Connect the reversed part back to the original list\n    head.next = None\n    \n    return prev_node\n\n# Example usage:\n# Create a linked list: 1 -> 2 -> 3 -> 4 -> 5\nhead = ListNode(1, ListNode(2, ListNode(3,"
+    },
+    {
+      "latency_s": 6.186124573461711,
+      "batch_size": 4,
+      "text": "Static Batching and Continuous Batching are two different techniques used for optimizing the performance of Large Language Model (LLM) inference and serving on GPUs.\n\n### Static Batching\n\n**Static Batching** is a technique where the model's output is pre-processed to be sent as a single batch at once. This approach can significantly improve the efficiency of inference and serve times because it reduces the number of intermediate batches that need to be transferred across the network. Here\u2019s how it works:\n\n1. **Model Output Pre-processing**: The model outputs are typically processed through a series of operations such as normalization, quantization, or other transformations.\n2. **Single Batch Transfer**: Instead of sending each individual token or sequence separately, the entire model output is combined into a single batch before being passed to the next layer or forward pass.\n3. **Efficiency**: By combining multiple tokens into one, you reduce the overhead associated with transferring data over the network, which can lead to faster inference and more efficient use of GPU resources.\n\n### Continuous Batching\n\n**Continuous Batching**, on the other hand, involves continuously processing the model's output without waiting for all intermediate results to complete. This method allows for real-time updates and can help optimize the throughput of the inference process:\n\n1. **"
+    },
+    {
+      "latency_s": 11.24051306862384,
+      "batch_size": 4,
+      "text": "In the vast expanse of space, where the stars seemed to twinkle like diamonds in the night sky, there was a robotic entity known as \"Eva.\" Eva had been programmed with advanced AI capabilities and was designed to explore the cosmos for humanity's benefit.\n\nOne fateful evening, Eva found herself standing at the edge of a massive, abandoned space station. The station had stood empty since its construction over two centuries ago, but now it lay silent, its once bustling halls now eerily quiet. Eva's heart raced as she realized that this was not just any ordinary space station; it was a place of immense scientific research and technological advancement.\n\nAs Eva stepped out into the sterile silence, she couldn't help but feel a sense of unease. She had always been fascinated by the idea of exploring beyond Earth's borders, but this place felt too remote and uninviting. She turned to her AI companion, which had been watching her from the shadows, and asked if she could join her on this mission.\n\n\"Of course,\" replied the AI. \"I'm here to assist you.\"\n\nTogether, they set off towards the distant horizon, evading the occasional drone or alien spacecraft. As they approached the station, Eva noticed something peculiar: the air was thick with a"
+    },
+    {
+      "latency_s": 11.237616940401495,
+      "batch_size": 4,
+      "text": "The capital of France is Paris."
+    },
+    {
+      "latency_s": 11.236710528843105,
+      "batch_size": 4,
+      "text": "Infinite power,\nGPU's speed never stops,\nEffortlessly compute."
+    }
+  ],
+  "summary": {
+    "burst_size": 8,
+    "burst_wall_time_s": 11.259680395014584,
+    "latency_s": {
+      "mean": 8.717521782848053,
+      "p50": 11.236710528843105,
+      "p95": 11.249166864901781
+    },
+    "batch_sizes_seen": [
+      4
+    ],
+    "approx_total_output_tokens": 810,
+    "approx_throughput_tok_s": 71.9380987366783
+  }
+}
