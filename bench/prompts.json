@@ -1,0 +1,8 @@
+[
+  {"name": "short", "prompt": "What is the capital of France?", "max_tokens": 32},
+  {"name": "short_creative", "prompt": "Write a haiku about GPUs.", "max_tokens": 32},
+  {"name": "medium_explain", "prompt": "Explain how a hash table works, including how collisions are handled.", "max_tokens": 128},
+  {"name": "medium_code", "prompt": "Write a Python function that reverses a linked list, with comments.", "max_tokens": 128},
+  {"name": "long_explain", "prompt": "Explain the difference between static batching and continuous batching in LLM inference serving, and why continuous batching improves GPU utilization.", "max_tokens": 256},
+  {"name": "long_story", "prompt": "Write a short story about a robot exploring an abandoned space station. Include dialogue.", "max_tokens": 256}
+]
