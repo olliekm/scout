@@ -93,7 +93,7 @@ async def collect_batch(already_have: int) -> list[BatchItem]:
     batch = []
     deadline = time.perf_counter() + MAX_WAIT_S
 
-    while len(batch) + already_have< MAX_BATCH_SIZE:
+    while len(batch) + already_have < MAX_BATCH_SIZE:
         timeout = deadline - time.perf_counter()
         if timeout <= 0:
             break
