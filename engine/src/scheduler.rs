@@ -24,6 +24,7 @@ use std::collections::HashSet;
 
 pub struct Scheduler {
     allocator: BlockAllocator,
+    admitted: HashSet<u64>,
 
     // YOUR FIELD HERE.
     //
@@ -44,7 +45,9 @@ impl Scheduler {
     /// capacity. Mirrors BlockAllocator::new's shape -- this is where you
     /// practice constructing one struct that contains another.
     pub fn new(num_blocks: usize, block_size: usize) -> Self {
-        todo!("build a BlockAllocator::new(num_blocks, block_size), wrap it and an empty admitted set in Self")
+        let allocator: BlockAllocator = BlockAllocator::new(num_blocks, block_size);
+        let admitted: HashSet<u64> = HashSet::new();
+        Self { allocator, admitted }
     }
 
     /// Try to admit a new sequence. Returns true if admission succeeded
@@ -65,19 +68,30 @@ impl Scheduler {
     ///      guarantees it leaves everything untouched on failure, per its
     ///      own doc comment).
     pub fn try_admit(&mut self, seq_id: u64) -> bool {
-        todo!("allocate a first block for seq_id via the allocator; on success, mark it admitted")
+        if self.is_admitted(seq_id) {
+            return false
+        }
+        match self.allocator.allocate_block_for(seq_id) {
+            Some(block_id) => {
+                self.admitted.insert(seq_id);
+                return true
+            }
+            None => {
+                return false
+            }
+        }
     }
 
     /// Is `seq_id` currently admitted (tracked as running by this scheduler)?
     pub fn is_admitted(&self, seq_id: u64) -> bool {
-        todo!("check membership in self.admitted")
+        self.admitted.contains(&seq_id)
     }
 
     /// How many blocks are free in the underlying allocator right now.
     /// Thin pass-through -- useful for tests and for a future admission
     /// policy that wants to check capacity before even trying.
     pub fn num_free_blocks(&self) -> usize {
-        todo!("delegate to self.allocator.num_free()")
+        self.allocator.num_free()
     }
 }
 
