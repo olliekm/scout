@@ -48,6 +48,7 @@ queue: "asyncio.Queue[BatchItem]" = None  # created at startup, needs a running 
 class GenRequest(BaseModel):
     prompt: str
     max_tokens: int = 128
+    raw: bool = False
 
 
 class BatchItem:
@@ -56,11 +57,12 @@ class BatchItem:
     since there's more than one field of "work" here (prompt text AND a
     per-request max_tokens -- see the note on that below)."""
 
-    __slots__ = ("prompt", "max_tokens", "future", "t_submit")
+    __slots__ = ("prompt", "max_tokens", "raw", "future", "t_submit")
 
-    def __init__(self, prompt: str, max_tokens: int, future: "asyncio.Future"):
+    def __init__(self, prompt: str, max_tokens: int, raw: bool, future: "asyncio.Future"):
         self.prompt = prompt
         self.max_tokens = max_tokens
+        self.raw = raw
         self.future = future
         self.t_submit = time.perf_counter()
 
@@ -137,7 +139,7 @@ def build_batch_tensors(items: list[BatchItem]):
         of static batching worth remembering for later stages.
     """
 
-    batch_chat_templated = [build_chat_text(item.prompt) for item in items]
+    batch_chat_templated = [item.prompt if item.raw else build_chat_text(item.prompt) for item in items]
     tokenizer.padding_side = "left"
     batched_tensors = tokenizer(batch_chat_templated, return_tensors="pt", padding=True).to(DEVICE)
     return batched_tensors, batched_tensors["input_ids"].shape[1]
@@ -223,6 +225,6 @@ def health():
 @app.post("/generate")
 async def generate(req: GenRequest):
     future = asyncio.get_event_loop().create_future()
-    await queue.put(BatchItem(req.prompt, req.max_tokens, future))
+    await queue.put(BatchItem(req.prompt, req.max_tokens, req.raw, future))
     result = await future
     return result
