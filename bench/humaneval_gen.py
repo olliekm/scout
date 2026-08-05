@@ -42,12 +42,19 @@ def extract_completion(raw_text: str, prompt: str) -> str:
     markdown code fence and may repeat the prompt or add explanation before/
     after the code. Pull out just the function body continuation.
 
-    Strategy: prefer a fenced ```python ... ``` block if present (common for
-    instruct-tuned models even when asked to complete code directly); fall
-    back to using the raw text as-is if no fence is found.
+    Strategy: prefer a fenced ```python ... ``` block if BOTH fences are
+    present. If only one fence shows up (e.g. the prompt already put the
+    model "inside" a code context, so it only emits a closing ``` at the
+    end, or vice versa) a paired regex won't match at all and the raw text
+    -- fence marker included -- would leak through and break Python syntax.
+    So as a second pass, strip any leading/trailing fence line unconditionally,
+    regardless of whether the other side matched.
     """
     fence_match = re.search(r"```(?:python)?\s*\n(.*?)```", raw_text, re.DOTALL)
     code = fence_match.group(1) if fence_match else raw_text
+
+    code = re.sub(r"^```(?:python)?\s*\n?", "", code)
+    code = re.sub(r"\n?```\s*$", "", code)
 
     # If the model echoed the prompt back (common), strip it so what's left
     # is just the continuation to append after HumanEval's own prompt.
