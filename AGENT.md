@@ -42,11 +42,14 @@ Status: Steps 1-2 (naive baseline, static batching) prototyped in Python against
 
 Known gap vs. what Baseten's stack actually needs (per their posted role): **chunked prefill** is not on this roadmap yet and should be added as a stretch milestone after continuous batching — it's the mechanism for interleaving long prefill computations with ongoing decode steps so one big new request doesn't stall everyone else's generation.
 
-## Stretch milestone: quantization + accuracy tradeoff benchmark
+## Quantization: tried, deprioritized (not on active roadmap)
 
-- **INT8 quantization** (not FP8 — the A40 dev pod is Ampere-generation and lacks native FP8 tensor core support, so INT8 is the correct target for actual speedup rather than emulated/no-op quantization). INT4 (GPTQ/AWQ) as a further stretch beyond INT8, given accuracy risk on a coding model is a real concern (bad code from a degraded model is worse than slow-but-correct code).
-- Since decode is memory-bandwidth-bound (weights must be re-read from GPU memory every token, and per-token compute is small relative to that), quantization is a close-to-direct throughput lever at low/single-stream batch sizes — expect the benefit to shrink as batch size grows and the workload becomes more compute-bound (arithmetic intensity improves with batching, same mechanism that makes batching itself effective).
-- **Accuracy-vs-quantization benchmark**: run HumanEval and MBPP (the two benchmarks in Qwen's own published coding eval suite with simple, well-known open-source harnesses and no LLM-judge or heavy sandbox infra required) against the quantized model, compare to Qwen's published fp16/bf16 7B-Coder-Instruct scores (HumanEval 88.4, MBPP 83.5) to quantify accuracy degradation from quantization. This is a genuinely different axis from the throughput benchmarks elsewhere in this roadmap — an accuracy-vs-speed tradeoff story, not just a tok/s number.
+Explored as a stretch milestone, then dropped — kept here as a record of what was learned, not an active work item.
+
+- Python prototype (`server_static_batch.py`, `QUANTIZE=int8` env var) integrated `bitsandbytes` `LLM.int8()` against Qwen2.5-Coder-7B-Instruct on the A40 dev pod.
+- **HumanEval pass@1**: fp16 baseline 0.805 (164/164 problems, `bench/results/humaneval_fp16_full.jsonl` — not directly comparable to Qwen's published 88.4, different eval harness/prompt conventions, but a valid same-harness reference point). INT8 run was not completed to full accuracy comparison once the speed finding below made the direction moot.
+- **Key finding — INT8 was slower, not faster**: single-request generation latency went from 4.23s (fp16) to 11.25s (int8) for the same prompt/max_tokens, a ~2.7x *slowdown*. Root cause: `bitsandbytes`' `LLM.int8()` is a mixed-precision decomposition scheme (outlier activation columns routed through fp16 matmuls, non-outliers through int8) designed to reduce memory footprint so large models fit on smaller GPUs — it is not optimized for inference speed. On a GPU with ample headroom for the model (A40, 7B model), the decomposition overhead outweighs any memory-bandwidth savings.
+- **Conclusion**: dropped in favor of staying focused on the project's core goal (fast inference / throughput), since `bitsandbytes` int8 works against that goal on this hardware. If quantization is revisited later, the right tools would be speed-oriented ones with custom fused int8/int4 GEMM kernels (AWQ, GPTQ, or vLLM's own quantization kernels) rather than `bitsandbytes` — a different integration, not a tuning fix to this one.
 
 ## Design principles for this project
 
