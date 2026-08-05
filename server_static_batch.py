@@ -29,11 +29,18 @@ import time
 import torch
 from fastapi import FastAPI
 from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen2.5-0.5B-Instruct")
 DTYPE = torch.float16 if os.environ.get("DTYPE", "fp16") == "fp16" else torch.float32
 DEVICE = "cuda"
+
+# "" (default) = full precision (DTYPE above). "int8" = bitsandbytes LLM.int8()
+# quantization -- linear layer weights stored as int8, activation-outlier
+# columns kept in higher precision internally (bitsandbytes' own judgment
+# call about which computations are precision-sensitive, not something we
+# hand-tune here). See AGENT.md's quantization stretch milestone.
+QUANTIZE = os.environ.get("QUANTIZE", "")
 
 MAX_BATCH_SIZE = int(os.environ.get("MAX_BATCH_SIZE", 4))
 MAX_WAIT_S = float(os.environ.get("MAX_WAIT_S", 0.1))
@@ -204,7 +211,19 @@ async def load_model():
 
     t0 = time.perf_counter()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=DTYPE).to(DEVICE)
+
+    if QUANTIZE == "int8":
+        # device_map="auto" places quantized weights on GPU as they load --
+        # replaces the manual .to(DEVICE) call used in the full-precision
+        # path below (bitsandbytes quantizes during load, not after).
+        quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            quantization_config=quantization_config,
+            device_map="auto",
+        )
+    else:
+        model = AutoModelForCausalLM.from_pretrained(MODEL_ID, torch_dtype=DTYPE).to(DEVICE)
     model.eval()
 
     warm = tokenizer(build_chat_text("warmup"), return_tensors="pt").to(DEVICE)
@@ -219,7 +238,13 @@ async def load_model():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model": MODEL_ID, "dtype": str(DTYPE), "mode": "static_batch"}
+    return {
+        "status": "ok",
+        "model": MODEL_ID,
+        "dtype": str(DTYPE),
+        "quantize": QUANTIZE or "none",
+        "mode": "static_batch",
+    }
 
 
 @app.post("/generate")

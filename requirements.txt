@@ -4,3 +4,4 @@ transformers<5
 accelerate
 torch
 requests
+bitsandbytes
