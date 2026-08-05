@@ -183,7 +183,23 @@ impl BlockAllocator {
     ///   4. If you got a real BlockId, return Some((the_block_id, offset));
     ///      otherwise None at any failed step.
     pub fn locate(&self, seq_id: u64, position: usize) -> Option<(BlockId, usize)> {
-        todo!("compute block_index/offset, look up seq_id's blocks, return Some((block_id, offset)) or None")
+        let block_index = position / self.block_size;
+        let offset = position % self.block_size;
+        match self.seq_blocks.get(&seq_id) {
+            Some(block_ids) => {
+                match block_ids.get(block_index) {
+                    Some(&block_id) => {
+                        Some((block_id, offset))
+                    }
+                    None => {
+                        None
+                    }
+                }
+            }
+            None => {
+                None
+            }
+        }
     }
 }
 
