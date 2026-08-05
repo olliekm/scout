@@ -61,7 +61,29 @@ def extract_completion(raw_text: str, prompt: str) -> str:
     if code.startswith(prompt):
         code = code[len(prompt):]
 
-    return code
+    return truncate_after_function(code)
+
+
+# Chat-tuned models given a raw completion prompt (no stop token telling them
+# "the function is done") tend to keep going: extra helper functions, a
+# check_solution()/__main__ block, explanatory prose. HumanEval's harness
+# appends its own test code after `completion` and executes the result, so
+# any of that trailing content can cause a spurious SyntaxError/NameError
+# unrelated to whether the target function itself was implemented correctly.
+# Standard fix: cut at the first sign the function body has ended -- a
+# top-level (non-indented, non-blank) line, which in a properly indented
+# function body only appears once the function is over.
+_STOP_LINE_RE = re.compile(r"^(?:def |class |if __name__|print\(|#\s*(?:Test|Check|Example))")
+
+
+def truncate_after_function(code: str) -> str:
+    lines = code.split("\n")
+    keep = []
+    for line in lines:
+        if line and not line[0].isspace() and _STOP_LINE_RE.match(line):
+            break
+        keep.append(line)
+    return "\n".join(keep).rstrip() + "\n"
 
 
 def main():
