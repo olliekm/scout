@@ -141,11 +141,18 @@ impl BlockAllocator {
                 return Some(block_id);
             }
             None => {
-                todo!(
-                    "on exhaustion: find an evictable victim (not seq_id itself), \
-                     free_sequence() it, retry self.allocate() once, record + \
-                     return on success, None if no valid victim existed"
-                )
+                let victim: Option<u64> = self.evictable.iter().copied().find(|&id| id != seq_id);
+                let victim_id: u64 = victim?;
+                self.free_sequence(victim_id);
+                match self.allocate() {
+                    Some(block_id) => {
+                        self.seq_blocks.entry(seq_id).or_default().push(block_id);
+                        return Some(block_id);
+                    }
+                    None => {
+                        None
+                    }
+                }
             }
         }
     }
