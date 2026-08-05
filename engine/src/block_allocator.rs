@@ -43,34 +43,29 @@ pub struct BlockAllocator {
     num_blocks: usize,
     free_blocks: Vec<BlockId>,
     seq_blocks: HashMap<u64, Vec<BlockId>>,
-    // YOUR FIELD HERE.
-    //
-    // This is what turns a generic block pool into a KV-cache allocator:
-    // a map from sequence id to the list of blocks that sequence currently
-    // owns, so that when a sequence finishes you know exactly which blocks
-    // to return to the free pool, and so a growing sequence can find its
-    // own block list to append to.
-    //
-    // `HashMap<K, V>` is Rust's dictionary type (Python's `dict`). Add:
-    //   seq_blocks: HashMap<u64, Vec<BlockId>>,
-    // (and add `use std::collections::HashMap;` near the top of the file --
-    // unlike Vec/Option, HashMap isn't in Rust's "prelude" of auto-imported
-    // types, so it needs an explicit `use`.)
 
+    /// Fixed number of tokens each block holds -- the KV-cache analogue of
+    /// OS page size. Set once at construction; every block is this size, no
+    /// exceptions (that uniformity is what makes the logical-position ->
+    /// (block, offset) math below a simple divide/modulo instead of needing
+    /// to search).
+    block_size: usize,
 }
 
 impl BlockAllocator {
-    /// Construct a new allocator managing `num_blocks` blocks, ALL initially
-    /// free. This is the Rust equivalent of a constructor / `__init__` --
-    /// by convention it's a static function named `new` (not a keyword,
-    /// just the idiom), returning `Self` (shorthand for `BlockAllocator`).
-    pub fn new(num_blocks: usize) -> Self {
+    /// Construct a new allocator managing `num_blocks` blocks of
+    /// `block_size` tokens each, ALL blocks initially free. This is the
+    /// Rust equivalent of a constructor / `__init__` -- by convention it's
+    /// a static function named `new` (not a keyword, just the idiom),
+    /// returning `Self` (shorthand for `BlockAllocator`).
+    pub fn new(num_blocks: usize, block_size: usize) -> Self {
         let free_blocks: Vec<BlockId> = (0..num_blocks).collect();
         let seq_blocks: HashMap<u64, Vec<BlockId>> = HashMap::new();
         let allo: BlockAllocator = BlockAllocator {
             num_blocks: num_blocks,
             free_blocks: free_blocks,
             seq_blocks: seq_blocks,
+            block_size: block_size,
         };
 
         return allo
@@ -128,8 +123,6 @@ impl BlockAllocator {
                 return None
             }
         }
-
-        // todo!("allocate a block, record it under seq_id in seq_blocks, return its id")
     }
 
     /// Free ALL blocks owned by `seq_id` (e.g. the sequence finished
@@ -162,6 +155,36 @@ impl BlockAllocator {
             }
         }
     }
+
+    /// The core paging lookup: given a logical token `position` within
+    /// `seq_id`'s sequence (0-indexed, in generation order), find WHICH
+    /// physical block holds it and the offset within that block. This is
+    /// exactly OS virtual-memory page translation: block_index = position
+    /// / block_size (integer division), offset = position % block_size.
+    ///
+    /// Returns `None` if `seq_id` isn't tracked, OR if `position` is beyond
+    /// how many tokens this sequence has actually allocated space for --
+    /// both are "there's no valid answer" cases, not something to panic on
+    /// (a scheduler bug asking about a position that doesn't exist yet
+    /// should get a clean None to handle, not crash the allocator).
+    ///
+    /// Steps:
+    ///   1. block_index = position / block_size ; offset = position % block_size
+    ///      (integer division/modulo on `usize` -- Rust's `/` and `%` on
+    ///      unsigned integers work exactly like this, no float conversion
+    ///      needed)
+    ///   2. Look up seq_id's Vec<BlockId> (self.seq_blocks.get(&seq_id))
+    ///   3. Index into that Vec at block_index to get the actual BlockId --
+    ///      but a plain `vec[index]` PANICS if index is out of bounds, which
+    ///      is exactly what happens if position is further than this
+    ///      sequence has allocated. Use `.get(block_index)` instead, which
+    ///      returns `Option<&BlockId>` -- safe, no panic, matches the "no
+    ///      valid answer -> None" contract this function needs.
+    ///   4. If you got a real BlockId, return Some((the_block_id, offset));
+    ///      otherwise None at any failed step.
+    pub fn locate(&self, seq_id: u64, position: usize) -> Option<(BlockId, usize)> {
+        todo!("compute block_index/offset, look up seq_id's blocks, return Some((block_id, offset)) or None")
+    }
 }
 
 #[cfg(test)]
@@ -170,13 +193,13 @@ mod tests {
 
     #[test]
     fn starts_with_all_blocks_free() {
-        let allocator = BlockAllocator::new(4);
+        let allocator = BlockAllocator::new(4, 4);
         assert_eq!(allocator.num_free(), 4);
     }
 
     #[test]
     fn allocate_reduces_free_count() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         let block = allocator.allocate();
         assert!(block.is_some());
         assert_eq!(allocator.num_free(), 3);
@@ -184,7 +207,7 @@ mod tests {
 
     #[test]
     fn allocate_until_exhausted_returns_none() {
-        let mut allocator = BlockAllocator::new(2);
+        let mut allocator = BlockAllocator::new(2, 4);
         assert!(allocator.allocate().is_some());
         assert!(allocator.allocate().is_some());
         assert!(allocator.allocate().is_none());
@@ -193,7 +216,7 @@ mod tests {
 
     #[test]
     fn free_returns_block_to_pool() {
-        let mut allocator = BlockAllocator::new(1);
+        let mut allocator = BlockAllocator::new(1, 4);
         let block = allocator.allocate().unwrap();
         assert_eq!(allocator.num_free(), 0);
         allocator.free(block);
@@ -202,7 +225,7 @@ mod tests {
 
     #[test]
     fn freed_block_can_be_reallocated() {
-        let mut allocator = BlockAllocator::new(1);
+        let mut allocator = BlockAllocator::new(1, 4);
         let block = allocator.allocate().unwrap();
         allocator.free(block);
         let reallocated = allocator.allocate();
@@ -211,13 +234,13 @@ mod tests {
 
     #[test]
     fn untracked_sequence_owns_zero_blocks() {
-        let allocator = BlockAllocator::new(4);
+        let allocator = BlockAllocator::new(4, 4);
         assert_eq!(allocator.blocks_owned_by(99), 0);
     }
 
     #[test]
     fn allocate_block_for_tracks_ownership() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         let b1 = allocator.allocate_block_for(1);
         assert!(b1.is_some());
         assert_eq!(allocator.blocks_owned_by(1), 1);
@@ -233,7 +256,7 @@ mod tests {
 
     #[test]
     fn allocate_block_for_two_sequences_are_independent() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         allocator.allocate_block_for(1);
         allocator.allocate_block_for(2);
         allocator.allocate_block_for(2);
@@ -244,7 +267,7 @@ mod tests {
 
     #[test]
     fn allocate_block_for_returns_none_when_exhausted() {
-        let mut allocator = BlockAllocator::new(1);
+        let mut allocator = BlockAllocator::new(1, 4);
         assert!(allocator.allocate_block_for(1).is_some());
         assert!(allocator.allocate_block_for(1).is_none());
         // the failed attempt must not have corrupted seq 1's existing state
@@ -253,7 +276,7 @@ mod tests {
 
     #[test]
     fn free_sequence_returns_all_its_blocks() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         allocator.allocate_block_for(1);
         allocator.allocate_block_for(1);
         assert_eq!(allocator.num_free(), 2);
@@ -265,7 +288,7 @@ mod tests {
 
     #[test]
     fn free_sequence_does_not_affect_other_sequences() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         allocator.allocate_block_for(1);
         allocator.allocate_block_for(2);
 
@@ -278,8 +301,48 @@ mod tests {
 
     #[test]
     fn free_sequence_on_untracked_id_is_a_harmless_no_op() {
-        let mut allocator = BlockAllocator::new(4);
+        let mut allocator = BlockAllocator::new(4, 4);
         allocator.free_sequence(404); // must not panic
         assert_eq!(allocator.num_free(), 4);
+    }
+
+    #[test]
+    fn locate_untracked_sequence_returns_none() {
+        let allocator = BlockAllocator::new(4, 4);
+        assert!(allocator.locate(1, 0).is_none());
+    }
+
+    #[test]
+    fn locate_first_block_first_offset() {
+        let mut allocator = BlockAllocator::new(4, 4); // block_size = 4
+        let b0 = allocator.allocate_block_for(1).unwrap();
+        // position 0 -> block_index 0, offset 0 -> the very first block, first slot
+        assert_eq!(allocator.locate(1, 0), Some((b0, 0)));
+    }
+
+    #[test]
+    fn locate_within_first_block() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        let b0 = allocator.allocate_block_for(1).unwrap();
+        // position 3 is still within block_size=4 -> same block, offset 3
+        assert_eq!(allocator.locate(1, 3), Some((b0, 3)));
+    }
+
+    #[test]
+    fn locate_rolls_over_into_second_block() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        let _b0 = allocator.allocate_block_for(1).unwrap();
+        let b1 = allocator.allocate_block_for(1).unwrap();
+        // position 5: block_index = 5/4 = 1, offset = 5%4 = 1 -> second
+        // allocated block (b1), offset 1 -- matches the worked example.
+        assert_eq!(allocator.locate(1, 5), Some((b1, 1)));
+    }
+
+    #[test]
+    fn locate_beyond_allocated_range_returns_none() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.allocate_block_for(1); // only 1 block = positions 0..4 valid
+        // position 4 needs a second block that was never allocated
+        assert!(allocator.locate(1, 4).is_none());
     }
 }
