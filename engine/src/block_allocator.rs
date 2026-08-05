@@ -115,23 +115,25 @@ impl BlockAllocator {
     }
 
     /// Allocate one more block and record it as owned by `seq_id`. Returns
-    /// the new block's id, or `None` if the pool is exhausted (this is the
-    /// realistic "ran out of GPU memory for KV cache" case -- for this
-    /// milestone, just fail cleanly and leave everything else untouched;
-    /// eviction/preemption is the scheduler's problem later, not this type's).
+    /// the new block's id, or `None` only if the pool is exhausted AND no
+    /// evictable sequence exists to make room (a genuine "no more memory,
+    /// nothing this allocator can do about it" case -- what the caller does
+    /// then, e.g. queue the request, IS scheduler policy and out of scope
+    /// here).
     ///
-    /// Two things to get right:
-    ///   1. Reuse your existing `allocate()` to get a free block id -- don't
-    ///      duplicate the pop-from-free-list logic here.
-    ///   2. Record that this seq_id now owns that block, appending to
-    ///      whatever `Vec<BlockId>` is already associated with `seq_id` in
-    ///      the map (or starting a new one, if this is the sequence's first
-    ///      block). `HashMap::entry(key).or_insert_with(Vec::new)` is the
-    ///      idiomatic way to say "get the Vec for this key, creating an
-    ///      empty one first if it doesn't exist yet" in one expression --
-    ///      look up its docs if unfamiliar, or write it as an explicit
-    ///      match/if-let on `self.seq_blocks.get_mut(&seq_id)` first if
-    ///      that's clearer while learning.
+    /// On exhaustion, before giving up: check `any_evictable()`. If some
+    /// sequence is a candidate, evict it (whole sequence -- see
+    /// free_sequence, which already does exactly "free every block a
+    /// sequence owns and stop tracking it") and retry the allocation once.
+    /// One retry is enough: freeing an entire sequence's blocks always
+    /// frees at least one, so the retry cannot fail for the same reason
+    /// (pool exhaustion) it just succeeded in fixing.
+    ///
+    /// IMPORTANT: evicting seq_id ITSELF would be nonsensical (freeing the
+    /// very sequence that's asking for more space, then immediately handing
+    /// it a block back is at best pointless, at worst confusing) -- if the
+    /// only evictable candidate happens to be seq_id itself, treat that the
+    /// same as "no candidate" and return None rather than evict it.
     pub fn allocate_block_for(&mut self, seq_id: u64) -> Option<BlockId> {
         match self.allocate() {
             Some(block_id) => {
@@ -139,7 +141,11 @@ impl BlockAllocator {
                 return Some(block_id);
             }
             None => {
-                return None
+                todo!(
+                    "on exhaustion: find an evictable victim (not seq_id itself), \
+                     free_sequence() it, retry self.allocate() once, record + \
+                     return on success, None if no valid victim existed"
+                )
             }
         }
     }
@@ -481,5 +487,59 @@ mod tests {
         allocator.mark_evictable(1);
         allocator.unmark_evictable(1);
         assert!(allocator.any_evictable().is_none());
+    }
+
+    #[test]
+    fn allocate_block_for_still_fails_when_exhausted_with_no_evictable_victim() {
+        let mut allocator = BlockAllocator::new(1, 4);
+        allocator.allocate_block_for(1); // pool now exhausted, seq 1 not evictable
+        assert!(allocator.allocate_block_for(2).is_none());
+        // failed attempt must not have disturbed seq 1's state
+        assert_eq!(allocator.blocks_owned_by(1), 1);
+    }
+
+    #[test]
+    fn allocate_block_for_evicts_a_marked_victim_to_make_room() {
+        let mut allocator = BlockAllocator::new(1, 4);
+        allocator.allocate_block_for(1);
+        allocator.mark_evictable(1);
+
+        let result = allocator.allocate_block_for(2);
+
+        assert!(result.is_some());
+        assert_eq!(allocator.blocks_owned_by(1), 0); // victim fully evicted
+        assert_eq!(allocator.blocks_owned_by(2), 1); // requester got its block
+    }
+
+    #[test]
+    fn allocate_block_for_does_not_evict_itself() {
+        // seq 1 is the ONLY tracked sequence, marked evictable, and is also
+        // the one requesting more space. It must not be allowed to evict
+        // itself to satisfy its own request.
+        let mut allocator = BlockAllocator::new(1, 4);
+        allocator.allocate_block_for(1);
+        allocator.mark_evictable(1);
+
+        assert!(allocator.allocate_block_for(1).is_none());
+        // seq 1 must be untouched -- not evicted, still owns its 1 block
+        assert_eq!(allocator.blocks_owned_by(1), 1);
+    }
+
+    #[test]
+    fn allocate_block_for_prefers_a_different_evictable_victim_over_self() {
+        let mut allocator = BlockAllocator::new(2, 4);
+        allocator.allocate_block_for(1);
+        allocator.allocate_block_for(2);
+        allocator.mark_evictable(1);
+        allocator.mark_evictable(2); // seq 2 itself is ALSO evictable
+
+        // seq 2 requests more space -- pool is exhausted (2 blocks, both
+        // owned). A valid victim exists that ISN'T seq 2 (namely seq 1), so
+        // this must succeed by evicting seq 1, not by evicting seq 2 itself.
+        let result = allocator.allocate_block_for(2);
+
+        assert!(result.is_some());
+        assert_eq!(allocator.blocks_owned_by(1), 0);
+        assert_eq!(allocator.blocks_owned_by(2), 2);
     }
 }
