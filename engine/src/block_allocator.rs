@@ -42,7 +42,7 @@ pub struct BlockAllocator {
     /// num_blocks fixed-size chunks."
     num_blocks: usize,
     free_blocks: Vec<BlockId>,
-
+    seq_blocks: HashMap<u64, Vec<BlockId>>,
     // YOUR FIELD HERE.
     //
     // This is what turns a generic block pool into a KV-cache allocator:
@@ -56,6 +56,7 @@ pub struct BlockAllocator {
     // (and add `use std::collections::HashMap;` near the top of the file --
     // unlike Vec/Option, HashMap isn't in Rust's "prelude" of auto-imported
     // types, so it needs an explicit `use`.)
+
 }
 
 impl BlockAllocator {
@@ -65,10 +66,11 @@ impl BlockAllocator {
     /// just the idiom), returning `Self` (shorthand for `BlockAllocator`).
     pub fn new(num_blocks: usize) -> Self {
         let free_blocks: Vec<BlockId> = (0..num_blocks).collect();
-
+        let seq_blocks: HashMap<u64, Vec<BlockId>> = HashMap::new();
         let allo: BlockAllocator = BlockAllocator {
             num_blocks: num_blocks,
             free_blocks: free_blocks,
+            seq_blocks: seq_blocks,
         };
 
         return allo
@@ -117,7 +119,17 @@ impl BlockAllocator {
     ///      match/if-let on `self.seq_blocks.get_mut(&seq_id)` first if
     ///      that's clearer while learning.
     pub fn allocate_block_for(&mut self, seq_id: u64) -> Option<BlockId> {
-        todo!("allocate a block, record it under seq_id in seq_blocks, return its id")
+        match self.allocate() {
+            Some(block_id) => {
+                self.seq_blocks.entry(seq_id).or_default().push(block_id);
+                return Some(block_id);
+            }
+            None => {
+                return None
+            }
+        }
+
+        // todo!("allocate a block, record it under seq_id in seq_blocks, return its id")
     }
 
     /// Free ALL blocks owned by `seq_id` (e.g. the sequence finished
@@ -127,14 +139,28 @@ impl BlockAllocator {
     /// value that was there, if any) -- exactly what you need here: get the
     /// Vec<BlockId> that seq_id owned, then free() each one back to the pool.
     pub fn free_sequence(&mut self, seq_id: u64) {
-        todo!("remove seq_id's entry from seq_blocks, free() every block it owned")
+        match self.seq_blocks.remove(&seq_id) {
+            Some(block_ids) => {
+                for block_id in block_ids {
+                    self.free(block_id);
+                }
+            }
+            None => {}
+        }
     }
 
     /// How many blocks does `seq_id` currently own? Returns 0 if the
     /// sequence isn't tracked at all (never allocated, or already freed) --
     /// NOT an error case, so this returns a plain `usize`, not `Option`.
     pub fn blocks_owned_by(&self, seq_id: u64) -> usize {
-        todo!("look up seq_id in seq_blocks, return how many blocks it owns (0 if untracked)")
+        match self.seq_blocks.get(&seq_id) {
+            Some(block_list) => {
+                return block_list.len()
+            }
+            None => {
+                return 0
+            }
+        }
     }
 }
 
