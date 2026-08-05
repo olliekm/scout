@@ -25,6 +25,8 @@
 //!   to something at a time, which is exactly the property you want for an
 //!   allocator (two things can't both think they own the same block).
 
+
+
 /// A block's identity is just its index into the pool. `usize` is Rust's
 /// "unsigned integer sized for indexing" type -- what you'd use for a list
 /// index. A type alias (`type BlockId = usize`) doesn't create a new type,
@@ -38,7 +40,7 @@ pub struct BlockAllocator {
     /// this stands in for "GPU memory reserved for KV cache, divided into
     /// num_blocks fixed-size chunks."
     num_blocks: usize,
-
+    free_blocks: Vec<BlockId>,
     // YOUR FIELD(S) HERE.
     //
     // You need some way to track which block IDs are currently free. A
@@ -55,7 +57,14 @@ impl BlockAllocator {
     /// by convention it's a static function named `new` (not a keyword,
     /// just the idiom), returning `Self` (shorthand for `BlockAllocator`).
     pub fn new(num_blocks: usize) -> Self {
-        todo!("construct a BlockAllocator with all num_blocks ids initially free")
+        let free_blocks: Vec<BlockId> = (0..num_blocks).collect();
+
+        let allo: BlockAllocator = BlockAllocator {
+            num_blocks: num_blocks,
+            free_blocks: free_blocks,
+        };
+
+        return allo
     }
 
     /// Try to allocate ONE free block. Returns `Some(block_id)` if a block
@@ -63,7 +72,7 @@ impl BlockAllocator {
     /// Rust way of expressing "might fail, no exception" -- the caller has
     /// to handle the None case, the compiler won't let them forget).
     pub fn allocate(&mut self) -> Option<BlockId> {
-        todo!("pop a block id off the free list, if any are available")
+        self.free_blocks.pop()
     }
 
     /// Return a block to the free pool. Takes ownership of nothing special
@@ -72,14 +81,14 @@ impl BlockAllocator {
     /// behavior that e.g. a `String` or `Vec` would -- so you don't need to
     /// worry about ownership subtleties for this one, just push it back.
     pub fn free(&mut self, block_id: BlockId) {
-        todo!("return block_id to the free list")
+        self.free_blocks.push(block_id);
     }
 
     /// How many blocks are currently free. Useful for tests and for the
     /// scheduler later (needs to know if there's room before admitting a
     /// new request).
     pub fn num_free(&self) -> usize {
-        todo!("return the count of free blocks")
+        return self.free_blocks.len();
     }
 }
 
