@@ -26,6 +26,7 @@
 //!   allocator (two things can't both think they own the same block).
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 
 /// A block's identity is just its index into the pool. `usize` is Rust's
@@ -50,6 +51,21 @@ pub struct BlockAllocator {
     /// (block, offset) math below a simple divide/modulo instead of needing
     /// to search).
     block_size: usize,
+
+    // YOUR FIELD HERE.
+    //
+    // The allocator itself has no idea which sequences are "important" (a
+    // request that's already streamed output to a user vs. one just
+    // admitted) -- that's scheduling policy, which lives above this type.
+    // What the allocator DOES need: a place for the caller to mark which
+    // tracked sequences are ALLOWED to be evicted if the pool runs out,
+    // so allocate_block_for's failure path has somewhere to look for a
+    // candidate instead of just failing outright.
+    //
+    // `HashSet<T>` is Rust's set type (Python's `set`) -- membership only,
+    // no values. Add:
+    //   evictable: HashSet<u64>,
+    // and add `use std::collections::HashSet;` near the other `use` line.
 }
 
 impl BlockAllocator {
@@ -183,8 +199,8 @@ impl BlockAllocator {
     ///   4. If you got a real BlockId, return Some((the_block_id, offset));
     ///      otherwise None at any failed step.
     pub fn locate(&self, seq_id: u64, position: usize) -> Option<(BlockId, usize)> {
-        let block_index = position / self.block_size;
-        let offset = position % self.block_size;
+        let block_index: usize = position / self.block_size;
+        let offset: usize = position % self.block_size;
         match self.seq_blocks.get(&seq_id) {
             Some(block_ids) => {
                 match block_ids.get(block_index) {
@@ -200,6 +216,41 @@ impl BlockAllocator {
                 None
             }
         }
+    }
+
+    /// Mark `seq_id` as a valid eviction candidate. Idempotent -- marking
+    /// something that's already marked is a harmless no-op (that's just how
+    /// set insertion works: inserting a value that's already a member
+    /// changes nothing).
+    pub fn mark_evictable(&mut self, seq_id: u64) {
+        todo!("insert seq_id into the evictable set")
+    }
+
+    /// Undo mark_evictable -- e.g. the sequence started actively decoding
+    /// again and must not be evicted out from under it. Also idempotent:
+    /// removing something not in the set is a harmless no-op.
+    pub fn unmark_evictable(&mut self, seq_id: u64) {
+        todo!("remove seq_id from the evictable set")
+    }
+
+    /// Is `seq_id` currently marked evictable?
+    pub fn is_evictable(&self, seq_id: u64) -> bool {
+        todo!("check membership in the evictable set")
+    }
+
+    /// If the pool is exhausted, the caller (future scheduler) needs SOME
+    /// evictable sequence to consider evicting. This does not pick "the
+    /// best" victim by any policy (LRU, priority, etc.) -- picking a good
+    /// victim is scheduling policy, which this type deliberately doesn't
+    /// own. It just answers "is there ANYONE evictable at all," returning
+    /// an arbitrary one's id if so.
+    ///
+    /// `HashSet` iteration order is unspecified (unlike Vec, which preserves
+    /// insertion order) -- `.iter().next()` gets you "some" element, with no
+    /// guarantee about which. That's fine here: this method's contract is
+    /// explicitly "any candidate," not "the right candidate."
+    pub fn any_evictable(&self) -> Option<u64> {
+        todo!("return Some(some seq_id from the evictable set), or None if the set is empty")
     }
 }
 
@@ -360,5 +411,65 @@ mod tests {
         allocator.allocate_block_for(1); // only 1 block = positions 0..4 valid
         // position 4 needs a second block that was never allocated
         assert!(allocator.locate(1, 4).is_none());
+    }
+
+    #[test]
+    fn not_evictable_by_default() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.allocate_block_for(1);
+        assert!(!allocator.is_evictable(1));
+    }
+
+    #[test]
+    fn mark_evictable_makes_it_evictable() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.allocate_block_for(1);
+        allocator.mark_evictable(1);
+        assert!(allocator.is_evictable(1));
+    }
+
+    #[test]
+    fn mark_evictable_is_idempotent() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.mark_evictable(1);
+        allocator.mark_evictable(1); // marking twice must not panic or error
+        assert!(allocator.is_evictable(1));
+    }
+
+    #[test]
+    fn unmark_evictable_reverses_mark() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.mark_evictable(1);
+        allocator.unmark_evictable(1);
+        assert!(!allocator.is_evictable(1));
+    }
+
+    #[test]
+    fn unmark_evictable_on_unmarked_id_is_a_harmless_no_op() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.unmark_evictable(404); // must not panic
+        assert!(!allocator.is_evictable(404));
+    }
+
+    #[test]
+    fn any_evictable_returns_none_when_nothing_marked() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.allocate_block_for(1);
+        assert!(allocator.any_evictable().is_none());
+    }
+
+    #[test]
+    fn any_evictable_returns_a_marked_seq_id() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.mark_evictable(1);
+        assert_eq!(allocator.any_evictable(), Some(1));
+    }
+
+    #[test]
+    fn any_evictable_after_unmarking_only_marked_is_none() {
+        let mut allocator = BlockAllocator::new(4, 4);
+        allocator.mark_evictable(1);
+        allocator.unmark_evictable(1);
+        assert!(allocator.any_evictable().is_none());
     }
 }
