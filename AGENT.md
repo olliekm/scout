@@ -19,7 +19,7 @@ Status: Steps 1-2 (naive baseline, static batching) prototyped in Python against
 - **Serving interface**: gRPC
 - **GPU kernels**: CUDA, accessed via FFI from Rust. Scope decision — integrate FlashAttention-2 rather than rewrite attention kernels from scratch; hand-write kernels only where it's the point of a specific milestone (e.g. a basic matmul/attention kernel for the "naive" baseline), not to reinvent well-optimized ops.
 - **Model format**: load weights from safetensors (GGUF as a stretch goal)
-- **Target model**: Qwen2.5-7B-Coder-Instruct (`Qwen2ForCausalLM` architecture — 28 layers, hidden_size 3584, GQA with 28 query heads / 4 KV heads, 32768 max context). Prototyping/Step 1-2 baselines used Qwen2.5-0.5B-Instruct for fast iteration; those numbers don't transfer to the 7B target and were re-baselined once the model size changed.
+- **Target model**: Qwen2.5-Coder-7B-Instruct (HF: `Qwen/Qwen2.5-Coder-7B-Instruct`) (`Qwen2ForCausalLM` architecture — 28 layers, hidden_size 3584, GQA with 28 query heads / 4 KV heads, 32768 max context). Prototyping/Step 1-2 baselines used Qwen2.5-0.5B-Instruct for fast iteration; those numbers don't transfer to the 7B target and were re-baselined once the model size changed.
 
 ## Architecture components
 
