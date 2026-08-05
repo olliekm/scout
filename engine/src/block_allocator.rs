@@ -51,7 +51,7 @@ pub struct BlockAllocator {
     /// (block, offset) math below a simple divide/modulo instead of needing
     /// to search).
     block_size: usize,
-
+    evictable: HashSet<u64>
     // YOUR FIELD HERE.
     //
     // The allocator itself has no idea which sequences are "important" (a
@@ -77,11 +77,14 @@ impl BlockAllocator {
     pub fn new(num_blocks: usize, block_size: usize) -> Self {
         let free_blocks: Vec<BlockId> = (0..num_blocks).collect();
         let seq_blocks: HashMap<u64, Vec<BlockId>> = HashMap::new();
+        let evictable: HashSet<u64> = HashSet::new();
+
         let allo: BlockAllocator = BlockAllocator {
             num_blocks: num_blocks,
             free_blocks: free_blocks,
             seq_blocks: seq_blocks,
             block_size: block_size,
+            evictable: evictable,
         };
 
         return allo
@@ -223,19 +226,19 @@ impl BlockAllocator {
     /// set insertion works: inserting a value that's already a member
     /// changes nothing).
     pub fn mark_evictable(&mut self, seq_id: u64) {
-        todo!("insert seq_id into the evictable set")
+        self.evictable.insert(seq_id);
     }
 
     /// Undo mark_evictable -- e.g. the sequence started actively decoding
     /// again and must not be evicted out from under it. Also idempotent:
     /// removing something not in the set is a harmless no-op.
     pub fn unmark_evictable(&mut self, seq_id: u64) {
-        todo!("remove seq_id from the evictable set")
+        self.evictable.remove(&seq_id);
     }
 
     /// Is `seq_id` currently marked evictable?
     pub fn is_evictable(&self, seq_id: u64) -> bool {
-        todo!("check membership in the evictable set")
+        self.evictable.contains(&seq_id)
     }
 
     /// If the pool is exhausted, the caller (future scheduler) needs SOME
@@ -250,7 +253,14 @@ impl BlockAllocator {
     /// guarantee about which. That's fine here: this method's contract is
     /// explicitly "any candidate," not "the right candidate."
     pub fn any_evictable(&self) -> Option<u64> {
-        todo!("return Some(some seq_id from the evictable set), or None if the set is empty")
+        match self.evictable.iter().next() {
+            Some(seq_id) => {
+                Some(*seq_id)
+            }
+            None => {
+                None
+            }
+        }
     }
 }
 
