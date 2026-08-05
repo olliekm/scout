@@ -1,0 +1,8 @@
+{
+  "model": "Qwen/Qwen2.5-Coder-7B-Instruct",
+  "dtype": "fp16",
+  "benchmark": "HumanEval",
+  "num_problems": 164,
+  "pass@1": 0.8048780487804879,
+  "notes": "Generated via bench/humaneval_gen.py against server_static_batch.py (raw completion mode, greedy decoding, max_tokens=384), evaluated with openai/human-eval's evaluate_functional_correctness. Not directly comparable to Qwen's published 88.4 (likely different eval harness/prompt conventions) -- intended as the fp16 baseline for a same-harness fp16-vs-INT8 comparison."
+}
