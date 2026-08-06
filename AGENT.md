@@ -39,17 +39,18 @@ Status: Steps 1-2 (naive baseline, static batching) prototyped in Python against
 4. Continuous batching scheduler
 5. Fused attention kernels (integrate FlashAttention-2 via FFI)
 6. Speculative decoding (draft + verify loop)
+7. Quantization: weight-only 4-bit + fused dequant-GEMM (integrate an existing kernel — AWQ/GPTQ/Marlin — via FFI first; hand-rolling the fused kernel is a further stretch goal on top, once the integrated version works)
 
 Known gap vs. what Baseten's stack actually needs (per their posted role): **chunked prefill** is not on this roadmap yet and should be added as a stretch milestone after continuous batching — it's the mechanism for interleaving long prefill computations with ongoing decode steps so one big new request doesn't stall everyone else's generation.
 
-## Quantization: tried, deprioritized (not on active roadmap)
+## Quantization: step 7 on the roadmap (see also step-7 bullet above)
 
-Explored as a stretch milestone, then dropped — kept here as a record of what was learned, not an active work item.
+First attempt (`bitsandbytes` int8) was tried and dropped for being slower, not faster — kept below as a record of what was learned. Revisited as step 7: weight-only 4-bit quantization with a kernel that fuses dequantization into the GEMM (AWQ, GPTQ, or Marlin specifically, since Marlin targets exactly this fused-dequant-int4-GEMM case and is what vLLM itself uses), integrated via FFI the same way FlashAttention-2 is planned to be — link against existing kernel source, don't reimplement it, per the "don't reinvent optimized GPU kernels" principle. Hand-rolling the fused kernel is a further stretch goal after that integration works.
 
 - Python prototype (`server_static_batch.py`, `QUANTIZE=int8` env var) integrated `bitsandbytes` `LLM.int8()` against Qwen2.5-Coder-7B-Instruct on the A40 dev pod.
 - **HumanEval pass@1**: fp16 baseline 0.805 (164/164 problems, `bench/results/humaneval_fp16_full.jsonl` — not directly comparable to Qwen's published 88.4, different eval harness/prompt conventions, but a valid same-harness reference point). INT8 run was not completed to full accuracy comparison once the speed finding below made the direction moot.
 - **Key finding — INT8 was slower, not faster**: single-request generation latency went from 4.23s (fp16) to 11.25s (int8) for the same prompt/max_tokens, a ~2.7x *slowdown*. Root cause: `bitsandbytes`' `LLM.int8()` is a mixed-precision decomposition scheme (outlier activation columns routed through fp16 matmuls, non-outliers through int8) designed to reduce memory footprint so large models fit on smaller GPUs — it is not optimized for inference speed. On a GPU with ample headroom for the model (A40, 7B model), the decomposition overhead outweighs any memory-bandwidth savings.
-- **Conclusion**: dropped in favor of staying focused on the project's core goal (fast inference / throughput), since `bitsandbytes` int8 works against that goal on this hardware. If quantization is revisited later, the right tools would be speed-oriented ones with custom fused int8/int4 GEMM kernels (AWQ, GPTQ, or vLLM's own quantization kernels) rather than `bitsandbytes` — a different integration, not a tuning fix to this one.
+- **Conclusion**: `bitsandbytes` was dropped, since it works against the project's core goal (fast inference / throughput) on hardware with no memory pressure to justify its tradeoff — but the direction wasn't abandoned, just the tool. See step 7 above for the revisited plan.
 
 ## Design principles for this project
 
