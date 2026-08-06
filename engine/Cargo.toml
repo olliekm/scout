@@ -8,3 +8,7 @@ kernels = { path = "../kernels", optional = true }
 
 [features]
 gpu = ["dep:kernels"]
+
+[dev-dependencies]
+rand = "0.10.2"
+rand_distr = "0.6.0"

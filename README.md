@@ -72,6 +72,15 @@ latency ~2.7x *slower* (4.2s → 11.3s), since `LLM.int8()` trades speed for
 memory footprint and this model already fits comfortably on an A40. Details
 in `AGENT.md`.
 
+Paged KV cache memory utilization (`cargo run --example fragmentation_report
+-p engine` — pure Rust bookkeeping, no GPU/model needed): against a synthetic
+workload of 64 sequences (log-normal length distribution, seeded/reproducible),
+a naive strategy that reserves the full 32768-token max context per sequence
+upfront needs 131,072 blocks; the real `BlockAllocator`'s paged allocation
+uses only 955 — **99.27% of naive's worst-case reservation goes unused**. This
+is the internal-fragmentation result the vLLM paper's paging design is built
+to solve.
+
 ## Building
 
 ```sh

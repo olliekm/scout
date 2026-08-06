@@ -43,6 +43,14 @@ Status: Steps 1-2 (naive baseline, static batching) prototyped in Python against
 
 Known gap vs. what Baseten's stack actually needs (per their posted role): **chunked prefill** is not on this roadmap yet and should be added as a stretch milestone after continuous batching — it's the mechanism for interleaving long prefill computations with ongoing decode steps so one big new request doesn't stall everyone else's generation.
 
+## Paged KV cache: fragmentation benchmark (step 3)
+
+`engine/examples/fragmentation_report.rs` (`cargo run --example fragmentation_report -p engine`) measures the actual memory-efficiency win paging gives over naive reservation — pure Rust bookkeeping against the real `BlockAllocator`, no GPU or model needed, so it runs anywhere including outside the pod.
+
+- **Method**: sample 64 sequence lengths from a seeded `LogNormal(mu=ln(150), sigma=1.2)` distribution (median ~150 tokens, long tail — deliberately skewed like real chat/code workloads, mirroring why `bench_sharegpt.py` uses real ShareGPT length variance instead of a uniform spread). Compare two strategies against that same workload: **naive** (`num_sequences * ceil(max_seq_len / block_size)` — every sequence reserves the full 32768-token max context upfront, Qwen2.5-Coder-7B-Instruct's actual context length) vs. **paged** (drives the real `BlockAllocator::allocate_block_for` per sequence, growing each sequence's block list lazily to only `ceil(true_length / block_size)` blocks, block_size = 16 tokens).
+- **Result**: naive requires 131,072 blocks; paged uses only 955 — **99.27% of naive's worst-case reservation goes unused**.
+- **Why this matters**: this is the internal-fragmentation result the vLLM paper's paging design is built to solve — reserving worst-case space per request wastes almost all of it in practice, since most real requests are far shorter than the max context window. It's the concrete "why paging" story for step 3, parallel to how the INT8 finding below is the concrete "why not bitsandbytes" story for step 7.
+
 ## Quantization: step 7 on the roadmap (see also step-7 bullet above)
 
 First attempt (`bitsandbytes` int8) was tried and dropped for being slower, not faster — kept below as a record of what was learned. Revisited as step 7: weight-only 4-bit quantization with a kernel that fuses dequantization into the GEMM (AWQ, GPTQ, or Marlin specifically, since Marlin targets exactly this fused-dequant-int4-GEMM case and is what vLLM itself uses), integrated via FFI the same way FlashAttention-2 is planned to be — link against existing kernel source, don't reimplement it, per the "don't reinvent optimized GPU kernels" principle. Hand-rolling the fused kernel is a further stretch goal after that integration works.
