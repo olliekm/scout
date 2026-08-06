@@ -21,23 +21,29 @@
 
 use crate::block_allocator::BlockAllocator;
 use std::collections::HashSet;
+use std::collections::VecDeque;
 
 pub struct Scheduler {
     allocator: BlockAllocator,
     admitted: HashSet<u64>,
-
+    waiting: VecDeque<u64>,
     // YOUR FIELD HERE.
     //
-    // The scheduler needs to know WHICH sequence ids it currently considers
-    // "admitted" / running -- distinct from what the allocator tracks
-    // (allocator only knows about sequences that own at least one block;
-    // the scheduler is the thing that will eventually decide admission,
-    // eviction policy, run order, etc., using the allocator as its
-    // mechanism, not its policy).
+    // Continuous batching's whole point is decoupling "a request exists"
+    // from "a request is currently running" -- static batching (step 2)
+    // could only admit new requests once the ENTIRE batch drained, because
+    // it had no concept of a request waiting its turn. This field is that
+    // concept: requests `submit`'d but not yet admitted sit here until
+    // `dispatch` finds room for them.
     //
-    // A `HashSet<u64>` of admitted sequence ids is enough for this slice.
+    // `VecDeque<u64>` (not `Vec<u64>`) specifically because dispatch needs
+    // FIFO order -- first submitted, first admitted, for fairness -- and
+    // `VecDeque::pop_front`/`push_front` are O(1), unlike `Vec::remove(0)`
+    // which would shift every remaining element down on each call.
+    //
     // Add:
-    //   admitted: HashSet<u64>,
+    //   waiting: VecDeque<u64>,
+
 }
 
 impl Scheduler {
@@ -47,7 +53,8 @@ impl Scheduler {
     pub fn new(num_blocks: usize, block_size: usize) -> Self {
         let allocator: BlockAllocator = BlockAllocator::new(num_blocks, block_size);
         let admitted: HashSet<u64> = HashSet::new();
-        Self { allocator, admitted }
+        let waiting: VecDeque<u64> = VecDeque::new();
+        Self { allocator, admitted, waiting }
     }
 
     /// Try to admit a new sequence. Returns true if admission succeeded
@@ -92,6 +99,66 @@ impl Scheduler {
     /// policy that wants to check capacity before even trying.
     pub fn num_free_blocks(&self) -> usize {
         self.allocator.num_free()
+    }
+
+    /// Record that `seq_id` wants to run, without trying to admit it yet.
+    /// Unlike `try_admit`, this never fails and never touches the
+    /// allocator -- it just queues the request in arrival order. Whether
+    /// it actually gets a block this round, or has to wait behind others,
+    /// is `dispatch`'s job, not this one's. Splitting "a request arrived"
+    /// from "a request is running" into two separate steps is exactly what
+    /// makes batching CONTINUOUS instead of static.
+    pub fn submit(&mut self, seq_id: u64) {
+        self.waiting.push_back(seq_id);
+    }
+
+    /// Admit as many waiting sequences as currently fit, in FIFO order.
+    /// This is the "fill empty slots as they appear" half of continuous
+    /// batching -- call it once per scheduling iteration, typically right
+    /// after `complete` has freed up room from a finished sequence.
+    ///
+    /// Steps:
+    ///   1. Loop: pop the front of `self.waiting` (`VecDeque::pop_front`).
+    ///      If the queue is empty, stop -- nothing left to admit.
+    ///   2. Call `self.try_admit(seq_id)` on the popped id.
+    ///   3. On success: record it (you'll return these), then loop back to
+    ///      step 1 -- there might still be room for the next one.
+    ///   4. On failure: the pool didn't have room for this one. Push it
+    ///      back onto the FRONT of `self.waiting` (`VecDeque::push_front`)
+    ///      so it's not lost and stays first in line for the NEXT dispatch
+    ///      call, then stop the loop -- if the pool couldn't fit this
+    ///      (longest-waiting) request, that's as far as this round goes.
+    ///   5. Return the ids that got admitted this round, in the order they
+    ///      were admitted.
+    pub fn dispatch(&mut self) -> Vec<u64> {
+        let mut dispatched: Vec<u64> = Vec::new();
+        while let Some(seq_id) = self.waiting.pop_front() {
+            if self.try_admit(seq_id) {
+                dispatched.push(seq_id);
+            } else {
+                self.waiting.push_front(seq_id);
+                break;
+            }
+        }
+        dispatched
+    }
+
+    /// Mark a running sequence as finished (hit EOS, hit max tokens,
+    /// whatever the caller's stopping condition is) -- frees every block
+    /// it owns and stops tracking it as admitted. This is the OTHER half
+    /// of the rolling window: `dispatch` fills empty slots, `complete` is
+    /// what CREATES one mid-batch, instead of waiting for every sequence
+    /// in the batch to finish before anyone new gets in (step 2's
+    /// behavior). `complete` only frees -- call `dispatch` again
+    /// afterward to actually backfill the room it opened up.
+    ///
+    /// Steps:
+    ///   1. `self.allocator.free_sequence(seq_id)` -- frees every block it
+    ///      owned, regardless of how many.
+    ///   2. `self.admitted.remove(&seq_id)` -- stop tracking it as running.
+    pub fn complete(&mut self, seq_id: u64) {
+        self.allocator.free_sequence(seq_id);
+        self.admitted.remove(&seq_id);
     }
 }
 
@@ -138,5 +205,90 @@ mod tests {
         scheduler.try_admit(1);
         // if re-admission is a no-op, free block count shouldn't change again
         assert_eq!(scheduler.num_free_blocks(), free_after_first);
+    }
+
+    #[test]
+    fn submit_does_not_admit_immediately() {
+        let mut scheduler = Scheduler::new(4, 4);
+        scheduler.submit(1);
+        assert!(!scheduler.is_admitted(1));
+        assert_eq!(scheduler.num_free_blocks(), 4);
+    }
+
+    #[test]
+    fn dispatch_with_nothing_waiting_returns_empty() {
+        let mut scheduler = Scheduler::new(4, 4);
+        assert_eq!(scheduler.dispatch(), Vec::<u64>::new());
+    }
+
+    #[test]
+    fn dispatch_admits_submitted_sequences_when_room() {
+        let mut scheduler = Scheduler::new(4, 4);
+        scheduler.submit(1);
+        scheduler.submit(2);
+        assert_eq!(scheduler.dispatch(), vec![1, 2]);
+        assert!(scheduler.is_admitted(1));
+        assert!(scheduler.is_admitted(2));
+        assert_eq!(scheduler.num_free_blocks(), 2);
+    }
+
+    #[test]
+    fn dispatch_stops_at_first_rejection_and_requeues_it() {
+        let mut scheduler = Scheduler::new(1, 4); // room for exactly one running sequence
+        scheduler.submit(1);
+        scheduler.submit(2);
+
+        assert_eq!(scheduler.dispatch(), vec![1]); // only seq 1 fit
+        assert!(!scheduler.is_admitted(2));
+
+        // seq 2 must still be waiting, not dropped -- a second dispatch
+        // with no new room should admit nobody, not silently lose it
+        assert!(scheduler.dispatch().is_empty());
+    }
+
+    #[test]
+    fn requeued_sequence_stays_first_in_line_for_the_next_dispatch() {
+        // Fairness check on the push_front-on-rejection behavior: a
+        // sequence that's been waiting longer must get the next freed slot
+        // ahead of one submitted more recently, even though both are
+        // sitting in the queue when that slot opens up.
+        let mut scheduler = Scheduler::new(1, 4);
+        scheduler.submit(1);
+        scheduler.submit(2);
+        scheduler.dispatch(); // admits 1; seq 2 requeued at the front
+
+        scheduler.submit(3); // arrives after seq 2 was already waiting
+        scheduler.complete(1); // frees the only slot
+
+        assert_eq!(scheduler.dispatch(), vec![2]); // 2 wins over 3, not FIFO by arrival-to-this-dispatch-call but by original submit order
+    }
+
+    #[test]
+    fn complete_frees_blocks_and_unmarks_admitted() {
+        let mut scheduler = Scheduler::new(4, 4);
+        scheduler.try_admit(1);
+        assert_eq!(scheduler.num_free_blocks(), 3);
+
+        scheduler.complete(1);
+        assert!(!scheduler.is_admitted(1));
+        assert_eq!(scheduler.num_free_blocks(), 4);
+    }
+
+    #[test]
+    fn complete_then_dispatch_backfills_a_waiting_sequence_without_draining_the_whole_batch() {
+        // The core continuous-batching claim: seq 2 gets in as soon as seq
+        // 1 finishes, without waiting for every other running sequence to
+        // drain first -- that "wait for the whole batch" behavior is what
+        // static batching (step 2) did, and this is the fix.
+        let mut scheduler = Scheduler::new(1, 4);
+        scheduler.try_admit(1);
+        scheduler.submit(2);
+
+        assert!(scheduler.dispatch().is_empty()); // no room yet, seq 2 still waiting
+
+        scheduler.complete(1); // seq 1 finishes, frees its block
+        assert_eq!(scheduler.dispatch(), vec![2]);
+        assert!(scheduler.is_admitted(2));
+        assert!(!scheduler.is_admitted(1));
     }
 }
