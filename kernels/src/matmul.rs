@@ -80,3 +80,65 @@ impl Drop for CublasHandle {
         unsafe { cublas_destroy_handle(self.handle) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::GpuBuffer;
+
+    fn f32_to_bytes(values: &[f32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+
+    fn bytes_to_f32(bytes: &[u8]) -> Vec<f32> {
+        bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    #[test]
+    fn creates_and_drops_a_handle() {
+        let handle = CublasHandle::new();
+        assert!(handle.is_some());
+        // handle drops here -- passing is the signal cublas_destroy_handle
+        // didn't crash, same "implicit assertion via Drop" pattern as
+        // GpuBuffer's buffer_is_freed_when_dropped test.
+    }
+
+    #[test]
+    fn matmul_f32_computes_a_correct_rectangular_product() {
+        // A (2x3, row-major) * B (3x2, row-major) = C (2x2, row-major).
+        // Deliberately rectangular, not square -- a row-major/column-major
+        // mixup in the cuBLAS argument swap (matmul.cu) would very likely
+        // produce a dimension mismatch or an obviously wrong result here,
+        // where a square case could accidentally look right (e.g. by
+        // silently computing C^T instead of C).
+        let (m, n, k) = (2usize, 2usize, 3usize);
+        let a_data = f32_to_bytes(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]); // 2x3
+        let b_data = f32_to_bytes(&[7.0, 8.0, 9.0, 10.0, 11.0, 12.0]); // 3x2
+        // Expected, hand-computed: C = A * B (2x2)
+        let expected = vec![58.0, 64.0, 139.0, 154.0];
+
+        let mut a_buf = GpuBuffer::new(a_data.len()).unwrap();
+        let mut b_buf = GpuBuffer::new(b_data.len()).unwrap();
+        let c_buf = GpuBuffer::new(m * n * 4).unwrap();
+        assert!(a_buf.copy_from_host(&a_data));
+        assert!(b_buf.copy_from_host(&b_data));
+
+        let handle = CublasHandle::new().unwrap();
+        let ok = handle.matmul_f32(
+            a_buf.ptr() as *const f32,
+            b_buf.ptr() as *const f32,
+            c_buf.ptr() as *mut f32,
+            m,
+            n,
+            k,
+        );
+        assert!(ok);
+
+        let mut c_bytes = vec![0u8; m * n * 4];
+        assert!(c_buf.copy_to_host(&mut c_bytes));
+        assert_eq!(bytes_to_f32(&c_bytes), expected);
+    }
+}
