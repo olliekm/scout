@@ -48,10 +48,12 @@ is depth, not a shipped product.
 - [x] Naive inference loop *(Python prototype)*
 - [x] Static batching *(Python prototype)*
 - [x] Paged KV cache — block-based allocator *(Rust, CPU + GPU-backed)*
-- [ ] Continuous batching scheduler — admission control done, per-iteration
-      dispatch next
+- [x] Continuous batching scheduler — admission, FIFO dispatch/backfill,
+      completion, mid-decode growth *(Rust)*
 - [ ] Fused attention kernels (FlashAttention-2 via FFI)
 - [ ] Speculative decoding (n-gram / prompt-lookup draft + verify)
+- [ ] Quantization — weight-only 4-bit + fused dequant-GEMM (AWQ/GPTQ/Marlin
+      via FFI; hand-rolled kernel as a further stretch goal)
 
 ## Benchmarks
 

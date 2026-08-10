@@ -1,4 +1,5 @@
 pub mod block_allocator;
+pub mod model;
 pub mod scheduler;
 
 #[cfg(feature = "gpu")] 

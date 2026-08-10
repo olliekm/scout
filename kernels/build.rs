@@ -16,7 +16,19 @@ fn main() {
         .file("src/gpu_alloc.cu")
         .compile("gpu_alloc");
 
+    cc::Build::new()
+        .cuda(true)
+        .file("src/matmul.cu")
+        .compile("matmul");
+
     // Re-run this build script if the CUDA source changes, not on every
     // build regardless of changes.
     println!("cargo:rerun-if-changed=src/gpu_alloc.cu");
+    println!("cargo:rerun-if-changed=src/matmul.cu");
+
+    // cuBLAS is a separate shared library from the CUDA runtime itself --
+    // linking it explicitly is required for cublasCreate/cublasSgemm/etc.
+    // to resolve at link time, the same way gpu_alloc_buffer resolves
+    // against cudaMalloc via the CUDA runtime cc::Build already links.
+    println!("cargo:rustc-link-lib=cublas");
 }

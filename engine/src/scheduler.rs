@@ -160,6 +160,40 @@ impl Scheduler {
         self.allocator.free_sequence(seq_id);
         self.admitted.remove(&seq_id);
     }
+
+    /// Give an ALREADY-RUNNING sequence one more block -- the piece
+    /// `try_admit` deliberately doesn't handle (see its own doc comment:
+    /// "growing further as it generates is a later concern"). Call this
+    /// once a sequence's decode loop crosses a block boundary (its current
+    /// block is full and it just generated another token), the same
+    /// moment `paged_blocks_used` in `fragmentation_report.rs` calls
+    /// `allocate_block_for` again for a sequence mid-simulation.
+    ///
+    /// Note the entry condition is the MIRROR of `try_admit`'s: `try_admit`
+    /// requires `seq_id` NOT already be admitted (it's for first entry),
+    /// `grow` requires it ALREADY be admitted (nothing to grow if it isn't
+    /// running yet -- that's what `try_admit`/`dispatch` are for).
+    ///
+    /// Steps:
+    ///   1. If `!self.is_admitted(seq_id)`, return false -- growing a
+    ///      sequence that isn't running doesn't mean anything.
+    ///   2. Otherwise call `self.allocator.allocate_block_for(seq_id)`.
+    ///      This is the SAME method `try_admit` calls -- it's already
+    ///      additive (appends another block to whatever `seq_id` owns)
+    ///      and already handles the exhausted-pool/eviction fallback, so
+    ///      there's nothing new to reimplement here.
+    ///   3. `Some(_)` -> return true. `None` -> return false (pool
+    ///      exhausted, no evictable victim -- same failure mode
+    ///      `try_admit` and `allocate_block_for` already have).
+    pub fn grow(&mut self, seq_id: u64) -> bool {
+        if !self.is_admitted(seq_id) {
+            return false
+        }
+        match self.allocator.allocate_block_for(seq_id) {
+            Some(_) => { return true }
+            None => { return false }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -290,5 +324,41 @@ mod tests {
         assert_eq!(scheduler.dispatch(), vec![2]);
         assert!(scheduler.is_admitted(2));
         assert!(!scheduler.is_admitted(1));
+    }
+
+    #[test]
+    fn grow_fails_for_a_sequence_that_was_never_admitted() {
+        let mut scheduler = Scheduler::new(4, 4);
+        assert!(!scheduler.grow(1));
+        assert_eq!(scheduler.num_free_blocks(), 4); // nothing should be touched
+    }
+
+    #[test]
+    fn grow_fails_for_a_sequence_that_was_admitted_then_completed() {
+        // Growing shouldn't resurrect a finished sequence -- is_admitted
+        // must be false again after complete, same check grow relies on.
+        let mut scheduler = Scheduler::new(4, 4);
+        scheduler.try_admit(1);
+        scheduler.complete(1);
+        assert!(!scheduler.grow(1));
+    }
+
+    #[test]
+    fn grow_gives_an_admitted_sequence_another_block() {
+        let mut scheduler = Scheduler::new(4, 4);
+        scheduler.try_admit(1); // takes 1 block
+        assert_eq!(scheduler.num_free_blocks(), 3);
+
+        assert!(scheduler.grow(1)); // takes a 2nd block
+        assert_eq!(scheduler.num_free_blocks(), 2);
+        assert!(scheduler.is_admitted(1)); // still admitted, unaffected by growth
+    }
+
+    #[test]
+    fn grow_fails_when_pool_exhausted_and_nothing_evictable() {
+        let mut scheduler = Scheduler::new(1, 4); // only 1 block total
+        scheduler.try_admit(1); // takes the only block
+        assert!(!scheduler.grow(1)); // nothing left to grow into, no evictable victim
+        assert_eq!(scheduler.num_free_blocks(), 0);
     }
 }

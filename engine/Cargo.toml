@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 kernels = { path = "../kernels", optional = true }
+safetensors = "0.8.0"
 
 [features]
 gpu = ["dep:kernels"]

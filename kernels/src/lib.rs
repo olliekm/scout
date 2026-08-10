@@ -16,6 +16,9 @@
 
 use std::ffi::c_void;
 
+pub mod matmul;
+pub use matmul::CublasHandle;
+
 // This block declares the C functions gpu_alloc.cu defines, so Rust knows
 // their signatures and can link against them (the build.rs script is what
 // makes the actual compiled code available to link against; this block is
@@ -25,6 +28,8 @@ use std::ffi::c_void;
 unsafe extern "C" {
     fn gpu_alloc_buffer(size_bytes: usize) -> *mut c_void;
     fn gpu_free_buffer(ptr: *mut c_void);
+    fn gpu_copy_to_device(dst: *mut c_void, src: *const c_void, size_bytes: usize) -> bool;
+    fn gpu_copy_to_host(dst: *mut c_void, src: *const c_void, size_bytes: usize) -> bool;
 }
 
 /// A GPU memory buffer, owned by this struct. This is where BlockId will
@@ -61,6 +66,39 @@ impl GpuBuffer {
 
     pub fn ptr(&self) -> *mut c_void {
         self.ptr
+    }
+
+    /// Copy `data` from host memory into this buffer's device memory.
+    /// Returns false (without attempting the copy) if `data` is larger
+    /// than this buffer -- copying more than the allocation holds would
+    /// write past its end, so this is checked on the Rust side rather
+    /// than trusting the FFI call to catch it.
+    ///
+    /// Steps:
+    ///   1. If data.len() > self.size_bytes, return false.
+    ///   2. unsafe { gpu_copy_to_device(self.ptr, data.as_ptr() as *const c_void, data.len()) }
+    ///      -- SAFETY: self.ptr is a valid device allocation of at least
+    ///      data.len() bytes (checked above), data.as_ptr() is valid for
+    ///      data.len() bytes per Rust's own slice guarantees.
+    pub fn copy_from_host(&mut self, data: &[u8]) -> bool {
+        if data.len() > self.size_bytes {
+            return false;
+        }
+        unsafe {
+            gpu_copy_to_device(self.ptr, data.as_ptr() as *const c_void, data.len())
+        }
+        
+    }
+
+    /// Copy this buffer's device memory into `data` (host memory) -- the
+    /// reverse of copy_from_host, same bounds check and SAFETY reasoning.
+    pub fn copy_to_host(&self, data: &mut [u8]) -> bool {
+        if data.len() > self.size_bytes {
+            return false;
+        }
+        unsafe {
+            gpu_copy_to_host(data.as_mut_ptr() as *mut c_void, self.ptr, data.len())
+        }
     }
 }
 
