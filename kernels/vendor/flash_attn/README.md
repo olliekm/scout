@@ -11,9 +11,13 @@ libtorch) is deliberately NOT vendored. Scout's own `kernels/src/attention.cu`
 calls directly into `run_mha_fwd`/`run_mha_fwd_splitkv_dispatch`
 (declared in `flash.h`, explicitly instantiated for this model's exact
 config in `flash_fwd_hdim128_bf16_causal_sm80.cu` /
-`flash_fwd_split_hdim128_bf16_causal_sm80.cu`) using `Flash_fwd_params`
-directly -- a plain C-style struct with raw device pointers, no PyTorch
-types involved.
+`flash_fwd_split_hdim128_bf16_causal_sm80.cu` /
+`flash_fwd_split_align_hdim128_bf16_causal_sm80.cu` -- the last one was
+missed on the first vendoring pass and only found via a linker error:
+`run_mha_fwd_splitkv_dispatch` calls `run_mha_fwd_splitkv_align`
+internally, a separate template needing its own explicit instantiation)
+using `Flash_fwd_params` directly -- a plain C-style struct with raw
+device pointers, no PyTorch types involved.
 
 Only the head_dim=128, bf16, causal kernel variant is vendored (matching
 Qwen2.5-Coder-7B-Instruct's config) -- not the full matrix of

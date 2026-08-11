@@ -61,6 +61,7 @@ fn main() {
         .flag("arch=compute_86,code=sm_86") // A40 = compute capability 8.6 -- VERIFY against the pod's actual GPU (`nvidia-smi --query-gpu=compute_cap --format=csv`) before trusting this
         .file("vendor/flash_attn/flash_fwd_hdim128_bf16_causal_sm80.cu")
         .file("vendor/flash_attn/flash_fwd_split_hdim128_bf16_causal_sm80.cu")
+        .file("vendor/flash_attn/flash_fwd_split_align_hdim128_bf16_causal_sm80.cu") // run_mha_fwd_splitkv_dispatch calls run_mha_fwd_splitkv_align internally -- separate explicit instantiation, missed on the first vendoring pass
         .file("src/attention.cu")
         .compile("attention");
 
