@@ -84,6 +84,14 @@ The core roadmap as scoped optimizes for throughput under concurrency (batching,
 
 Worth keeping as a talking point ("here's how the same core engine would need to adapt for a different serving workload") rather than pulling it into current scope, since it pulls toward a different center of gravity (single-stream latency + preemption) than "prioritize the scheduler and KV cache allocator for throughput," which is the current design principle.
 
+## Possible future direction: hybrid n-gram + lightweight draft head speculative decoding
+
+Not in current scope — a stretch idea layered on top of step 6, not a roadmap commitment. The intuition: n-gram/prompt-lookup drafting (the chosen step-6 approach) can only propose a continuation that has appeared *verbatim* before in context — excellent for code's highly repetitive patterns (imports, boilerplate, repeated identifiers), but blind to anything genuinely novel. A small trained draft head (EAGLE-style — predicting from the target model's own hidden states, not an independent model) generalizes past exact repeats, so it can still propose plausible tokens for the "in-between" content n-gram can't match (new variable names, natural-language comments, first-time logic). The two failure modes barely overlap, so running both and using whichever is currently confident/available should push acceptance rate higher than either alone — this is a real direction in the spec-decoding literature (hybrid/ensemble drafting), not a novel-but-unproven idea.
+
+Why it's a stretch goal and not step 6 itself: it reintroduces exactly what EAGLE was rejected for originally (see the speculative decoding rationale in "Architecture components" above) — a training pipeline. N-gram needs zero training, matching this project's "integrate/orchestrate, don't retrain" philosophy; a draft head needs training data (aligned target-model hidden states → next-token pairs), an actual training loop, and export/load infrastructure for its weights, none of which exists anywhere in Scout and is a genuinely different category of work (ML training) than everything else on the roadmap (systems/orchestration). It would also add real scheduler complexity — deciding per-step which drafter to trust, or running both and reconciling disagreements.
+
+Worth keeping as a talking point / extension idea for interviews ("here's how I'd push acceptance rate further") once n-gram spec decoding itself is built and benchmarked, not before.
+
 ## Related projects (for context, not part of Scout itself)
 
 - **Parsec** — LLM orchestration library (Python), the layer above where Scout sits
