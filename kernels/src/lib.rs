@@ -18,6 +18,7 @@ use std::ffi::c_void;
 
 pub mod matmul;
 pub mod rmsnorm;
+pub mod rope;
 pub use matmul::CublasHandle;
 
 // This block declares the C functions gpu_alloc.cu defines, so Rust knows

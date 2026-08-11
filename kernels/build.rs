@@ -26,11 +26,17 @@ fn main() {
         .file("src/rmsnorm.cu")
         .compile("rmsnorm");
 
+    cc::Build::new()
+        .cuda(true)
+        .file("src/rope.cu")
+        .compile("rope");
+
     // Re-run this build script if the CUDA source changes, not on every
     // build regardless of changes.
     println!("cargo:rerun-if-changed=src/gpu_alloc.cu");
     println!("cargo:rerun-if-changed=src/matmul.cu");
     println!("cargo:rerun-if-changed=src/rmsnorm.cu");
+    println!("cargo:rerun-if-changed=src/rope.cu");
 
     // cuBLAS is a separate shared library from the CUDA runtime itself --
     // linking it explicitly is required for cublasCreate/cublasSgemm/etc.
