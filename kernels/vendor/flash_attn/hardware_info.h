@@ -4,6 +4,12 @@
 
 #pragma once
 
+// SCOUT MODIFICATION: added <cstdio>/<cstdlib> -- CHECK_CUDA below uses
+// fprintf/stderr/exit, which upstream gets transitively via torch headers
+// compiled earlier in their pipeline. We don't have that transitive
+// include here, so this header doesn't compile standalone without it.
+#include <cstdio>
+#include <cstdlib>
 #include <tuple>
 
 #if !defined(__CUDACC_RTC__)
