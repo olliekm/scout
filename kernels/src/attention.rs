@@ -142,7 +142,12 @@ mod tests {
         assert!(out_buf.copy_to_host(&mut out_bytes));
         let out = bytes_to_bf16(&out_bytes);
 
-        for (i, (&got, &expected)) in out.iter().zip(v_data.iter()).enumerate() {
+        for (i, (&got, &v)) in out.iter().zip(v_data.iter()).enumerate() {
+            // Compare against v ROUND-TRIPPED through bf16, not the raw f32
+            // -- v was already truncated to bf16 before upload (v_bytes),
+            // so that's the only value the kernel could possibly have
+            // passed through unchanged, not the original f32.
+            let expected = bf16_bits_to_f32(f32_to_bf16_bits(v));
             assert!(
                 (got - expected).abs() < 1e-2, // bf16 has ~2-3 decimal digits of precision
                 "index {i}: expected {expected}, got {got}"
